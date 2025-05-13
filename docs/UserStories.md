@@ -79,6 +79,7 @@ This document outlines the user stories for the ETHICAL Auras (EA) mod, correspo
 *   **So that** I can better plan when to refresh it.
 
 ### US9: In-Game Buff Configuration
+Note: Adhere to requirments for https://thunderstore.io/c/valheim/p/Azumatt/Official_BepInEx_ConfigurationManager/ as that's our current config manager
 *   **As a** player,
 *   **I want to** be able to add or remove buffs from the tracking list via a simple in-game UI,
 *   **So that** I don't have to exit the game or manually edit a configuration file for quick changes.
