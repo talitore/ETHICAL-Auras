@@ -34,6 +34,10 @@
     <Reference Include="0Harmony">
       <HintPath>..\libs\0Harmony.dll</HintPath>
     </Reference>
+    <Reference Include="assembly_utils, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>C:\Users\tekems\Desktop\Valheim-Dev\valheim_Data\Managed\assembly_utils.dll</HintPath>
+    </Reference>
     <Reference Include="assembly_valheim">
       <HintPath>C:\Users\tekems\Desktop\Valheim-Dev\valheim_Data\Managed\assembly_valheim.dll</HintPath>
     </Reference>
@@ -53,6 +57,18 @@
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>C:\Users\tekems\Desktop\Valheim-Dev\valheim_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>C:\Users\tekems\Desktop\Valheim-Dev\valheim_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>C:\Users\tekems\Desktop\Valheim-Dev\valheim_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UI, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>C:\Users\tekems\Desktop\Valheim-Dev\valheim_Data\Managed\UnityEngine.UI.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
