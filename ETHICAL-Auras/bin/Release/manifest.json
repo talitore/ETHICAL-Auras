@@ -1,0 +1,9 @@
+{
+    "name": "ETHICAL_Auras",
+    "version_number": "0.1.0",
+    "website_url": "https://github.com/talitore/ETHICAL-Auras",
+    "description": "Ethical WeakAuras for dog tamers",
+    "dependencies": [
+        "denikson-BepInExPack_Valheim-5.4.2202"
+    ]
+}

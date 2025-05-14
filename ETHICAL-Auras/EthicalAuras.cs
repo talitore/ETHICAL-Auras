@@ -19,18 +19,25 @@ namespace ETHICAL_Auras
 
         private static ManualLogSource Log;
         private Harmony harmony;
+        private AssetBundle ethicalAurasBundle; // Added to store the loaded asset bundle
 
         // Configuration Entries
         public static ConfigEntry<string> TrackedBuffsConfig;
         public static List<string> TrackedBuffNames = new List<string>();
 
         public static ConfigEntry<bool> EnableAudioAlertsConfig;
-        public static ConfigEntry<string> AudioAlertSoundNameConfig;
+        public static ConfigEntry<bool> LoopAudioAlertConfig;
+        public static ConfigEntry<string> SelectedAudioClipNameConfig;
 
         // List to store buffs that are currently missing
-        private List<string> currentlyMissingBuffs = new List<string>();
+        private List<StatusEffect> currentlyMissingBuffs = new List<StatusEffect>();
 
         private AudioClip missingBuffAudioClip;
+
+        private float iconFlashTimer = 0f; // For flashing effect
+        private const float ICON_FLASH_SPEED = 2f; // Controls flash speed (higher is faster)
+        private const float ICON_SIZE = 40f; // Size of the buff icons
+        private const float ICON_PADDING = 5f; // Padding between icons
 
         private void Awake()
         {
@@ -41,26 +48,41 @@ namespace ETHICAL_Auras
             TrackedBuffsConfig = Config.Bind(
                 "General", // Section
                 "TrackedBuffs", // Key
-                "Rested,GP_Eikthyr,CampFire,Potion_poisonresist", // Default value (example buffs)
+                "Rested,CampFire,Potion_poisonresist", // Default value (example buffs)
                 "Comma-separated list of buff names to track (e.g., Rested,GP_Eikthyr,CookedLoxMeat). Use the internal buff names."); // Description
 
             EnableAudioAlertsConfig = Config.Bind(
                 "AudioAlerts", // Section
                 "EnableAudioAlerts", // Key
-                true, // Default value
+                false, // Default value
                 "Enable or disable audio alerts for missing buffs."); // Description
 
-            AudioAlertSoundNameConfig = Config.Bind(
+            LoopAudioAlertConfig = Config.Bind(
                 "AudioAlerts", // Section
-                "AudioAlertSoundName", // Key
-                "gui_ping", // Default value - a guess, user might need to change this
-                "The name of the game's sound effect to play for missing buff alerts (e.g., 'gui_ping', 'sfx_lootray_pickup'). Leave empty to disable specific sound."); // Description
+                "LoopAudioAlert", // Key
+                true, // Default value: looping is enabled
+                "Enable or disable looping for the audio alert. If false, the sound plays once per missing buff."); // Description
+
+            SelectedAudioClipNameConfig = Config.Bind(
+                "AudioAlerts", // Section
+                "SelectedAudioClipName", // Key
+                "scream", // Default value
+                new ConfigDescription(
+                    "The name of the audio clip to play. Send me (talitore) clips to be added.",
+                    new AcceptableValueList<string>("scream", "creatine"))
+                ); // Description
 
             ParseTrackedBuffs();
             // Listen for changes to the configuration and update if it's modified while the game is running.
             TrackedBuffsConfig.SettingChanged += (sender, args) => ParseTrackedBuffs();
             EnableAudioAlertsConfig.SettingChanged += (sender, args) => Log.LogInfo($"Audio alerts {(EnableAudioAlertsConfig.Value ? "enabled" : "disabled")}.");
-            AudioAlertSoundNameConfig.SettingChanged += (sender, args) => Log.LogInfo($"Audio alert sound name changed to: {AudioAlertSoundNameConfig.Value}");
+            LoopAudioAlertConfig.SettingChanged += (sender, args) => Log.LogInfo($"Audio alert looping {(LoopAudioAlertConfig.Value ? "enabled" : "disabled")}.");
+            SelectedAudioClipNameConfig.SettingChanged += (sender, args) =>
+            {
+                Log.LogInfo($"Selected audio clip name changed to: {SelectedAudioClipNameConfig.Value}. Reloading clip.");
+                // Reload the audio clip when the setting changes
+                LoadSelectedAudioClip(ethicalAurasBundle); // Use the class field 'ethicalAurasBundle'
+            };
 
             // Initialize Harmony for patching
             harmony = new Harmony(PluginGUID);
@@ -79,31 +101,51 @@ namespace ETHICAL_Auras
                 return; // Or handle error appropriately
             }
 
-            AssetBundle bundle = AssetBundle.LoadFromStream(stream);
+            ethicalAurasBundle = AssetBundle.LoadFromStream(stream);
             stream.Close(); // It's good practice to close the stream after loading
 
-            if (bundle == null)
+            if (ethicalAurasBundle == null)
             {
                 Log.LogError($"Failed to load AssetBundle from stream: {resourceName}.");
                 return; // Or handle error appropriately
             }
 
             // Load the audio clip
-            AudioClip audioClip = bundle.LoadAsset<AudioClip>("scream");
+            LoadSelectedAudioClip(ethicalAurasBundle); // Call the new method to load the clip
+
+            Log.LogInfo($"Plugin {PluginGUID} ({PluginName}) has loaded. Currently tracking: {string.Join(", ", TrackedBuffNames)}");
+            Log.LogInfo($"Audio alerts: {(EnableAudioAlertsConfig.Value ? "Enabled" : "Disabled")}, Loop: {LoopAudioAlertConfig.Value}, Clip: {SelectedAudioClipNameConfig.Value}");
+        }
+
+        private void LoadSelectedAudioClip(AssetBundle bundle)
+        {
+            if (bundle == null)
+            {
+                Log.LogError("AssetBundle is null. Cannot load audio clip.");
+                missingBuffAudioClip = null;
+                return;
+            }
+
+            string clipName = SelectedAudioClipNameConfig.Value;
+            if (string.IsNullOrEmpty(clipName))
+            {
+                Log.LogWarning("Selected audio clip name is empty. No audio clip will be loaded.");
+                missingBuffAudioClip = null;
+                return;
+            }
+
+            AudioClip audioClip = bundle.LoadAsset<AudioClip>(clipName);
 
             if (audioClip == null)
             {
-                Log.LogError($"Failed to load AudioClip 'scream' from AssetBundle: {resourceName}.");
-                // missingBuffAudioClip will remain null, and sound playing will be skipped or might error later if not handled.
+                Log.LogError($"Failed to load AudioClip '{clipName}' from AssetBundle. Ensure the clip exists in the bundle.");
+                missingBuffAudioClip = null; // Ensure it's null if loading fails
             }
             else
             {
                 missingBuffAudioClip = audioClip;
-                Log.LogInfo("Successfully loaded 'scream' audio clip from asset bundle.");
+                Log.LogInfo($"Successfully loaded '{clipName}' audio clip from asset bundle.");
             }
-
-            Log.LogInfo($"Plugin {PluginGUID} ({PluginName}) has loaded. Currently tracking: {string.Join(", ", TrackedBuffNames)}");
-            Log.LogInfo($"Audio alerts: {(EnableAudioAlertsConfig.Value ? "Enabled" : "Disabled")}, Sound: {AudioAlertSoundNameConfig.Value}");
         }
 
         private void ParseTrackedBuffs()
@@ -147,6 +189,23 @@ namespace ETHICAL_Auras
                     }
                 }
             }
+
+            // Ensure sounds are stopped if audio alerts are globally disabled
+            if (!EnableAudioAlertsConfig.Value)
+            {
+                GameObject soundGo = GameObject.Find("TempLoopingAlertSound");
+                if (soundGo != null)
+                {
+                    AudioSource audioSource = soundGo.GetComponent<AudioSource>();
+                    // If alerts are off, and the source is playing, stop it.
+                    // We don't need to check audioSource.loop here, because if alerts are off, no sound should play.
+                    if (audioSource != null && audioSource.isPlaying)
+                    {
+                        audioSource.Stop();
+                        Log.LogInfo("Audio alerts globally disabled. Stopped active alert sound.");
+                    }
+                }
+            }
         }
 
         private void CheckActiveBuffs()
@@ -162,28 +221,36 @@ namespace ETHICAL_Auras
             }
 
             SEMan statusEffectManager = localPlayer.GetSEMan();
-            List<string> missingBuffsFoundThisFrame = new List<string>();
+            List<StatusEffect> missingBuffsFoundThisFrame = new List<StatusEffect>();
 
             foreach (string buffName in TrackedBuffNames)
             {
-                // Assuming HaveStatusEffect takes an int (hash of the name)
-                // For Valheim, buff names are typically checked by their hashed integer ID or directly by string name if the SEMan method supports it.
-                // The original code uses GetStableHashCode(), which is a common approach for string-based buff checks if the game's API expects an int hash.
-                // Let's assume StatusEffect.m_name is the string to compare against if GetStableHashCode() isn't directly finding it or if direct name comparison is preferred.
-                // However, the existing code used GetStableHashCode(), so we'll stick to it unless issues arise.
                 if (!statusEffectManager.HaveStatusEffect(buffName.GetStableHashCode()))
                 {
-                    missingBuffsFoundThisFrame.Add(buffName);
+                    StatusEffect se = ObjectDB.instance.GetStatusEffect(buffName.GetStableHashCode());
+                    if (se != null && se.m_icon != null) // Ensure status effect and its icon exist
+                    {
+                        missingBuffsFoundThisFrame.Add(se);
+                    }
+                    else if (se == null)
+                    {
+                        Log.LogWarning($"Could not find StatusEffect for tracked buff name: {buffName}");
+                    }
+                    // Not logging if se.m_icon is null, as some buffs might legitimately not have icons (though unlikely for player buffs)
                 }
             }
 
             if (EnableAudioAlertsConfig.Value)
             {
-                foreach (string newMissingBuff in missingBuffsFoundThisFrame)
+                // We need to compare based on name or hash since StatusEffect instances might differ.
+                var missingBuffNamesFoundThisFrame = missingBuffsFoundThisFrame.Select(se => se.name).ToList();
+                var currentMissingBuffNames = currentlyMissingBuffs.Select(se => se.name).ToList();
+
+                foreach (StatusEffect newMissingSE in missingBuffsFoundThisFrame)
                 {
-                    if (!currentlyMissingBuffs.Contains(newMissingBuff)) // If it wasn't missing last frame but is now
+                    if (!currentMissingBuffNames.Contains(newMissingSE.name)) // If it wasn't missing last frame but is now
                     {
-                        PlayMissingBuffSoundLogic(newMissingBuff, localPlayer.transform);
+                        PlayMissingBuffSoundLogic(newMissingSE.m_name, localPlayer.transform);
                     }
                 }
             }
@@ -193,9 +260,14 @@ namespace ETHICAL_Auras
 
         private void PlayMissingBuffSoundLogic(string buffName, Transform anchor)
         {
-            if (string.IsNullOrEmpty(AudioAlertSoundNameConfig?.Value))
+            // If no custom audio clip is loaded (e.g., due to misconfiguration or empty SelectedAudioClipNameConfig),
+            // then don't attempt to play anything.
+            if (missingBuffAudioClip == null)
             {
-                //Log.LogDebug($"Audio alert sound name is not configured or empty. Won\'t play sound for missing buff: {buffName}");
+                // The warning about missingBuffAudioClip being null is already logged during LoadSelectedAudioClip
+                // if it fails to load, or if SelectedAudioClipNameConfig is empty.
+                // A debug log here could be useful if trying to trace why sound isn't playing.
+                // Log.LogDebug($"Skipping sound for missing buff {buffName} as missingBuffAudioClip is not available.");
                 return;
             }
 
@@ -216,33 +288,48 @@ namespace ETHICAL_Auras
                 {
                     soundGo = new GameObject("TempLoopingAlertSound");
                     audioSource = soundGo.AddComponent<AudioSource>();
-                    // Configure the AudioSource for 3D sound, if desired, similar to ZSFXHelper
-                    audioSource.spatialBlend = 1f;
-                    audioSource.minDistance = 1f;
-                    audioSource.maxDistance = 30f;
-                    audioSource.rolloffMode = AudioRolloffMode.Logarithmic;
-                    // Apply other settings as needed
+                    // Configure the AudioSource for 2D sound
+                    audioSource.spatialBlend = 0f; // 0f for 2D, 1f for 3D
+                    // Remove or comment out 3D specific settings:
+                    // audioSource.minDistance = 1f;
+                    // audioSource.maxDistance = 30f;
+                    // audioSource.rolloffMode = AudioRolloffMode.Logarithmic;
                 }
                 else
                 {
                     audioSource = soundGo.GetComponent<AudioSource>();
+                    // Ensure spatialBlend is set correctly if reusing an existing AudioSource that might have been 3D
+                    if (audioSource != null) audioSource.spatialBlend = 0f;
                 }
 
-                soundGo.transform.position = anchor.position; // Update position to the anchor (player)
+                soundGo.transform.position = anchor.position; // Position still set, though less relevant for 2D
 
                 if (missingBuffAudioClip != null)
                 {
                     if (!audioSource.isPlaying || audioSource.clip != missingBuffAudioClip)
                     {
                         audioSource.clip = missingBuffAudioClip;
-                        audioSource.loop = true; // Enable looping
+                        audioSource.loop = LoopAudioAlertConfig.Value; // Use the config setting for looping
+
+                        // Check if the specific "scream" clip is selected and loaded
+                        if (SelectedAudioClipNameConfig.Value == "scream" && missingBuffAudioClip.name.ToLowerInvariant().Contains("scream"))
+                        {
+                            audioSource.time = 0.5f; // Start 0.5 seconds into the clip
+                            Log.LogInfo("Starting 'scream' clip from 0.5s offset.");
+                        }
+                        else
+                        {
+                            audioSource.time = 0f; // Ensure other clips start from the beginning
+                        }
+
                         audioSource.Play();
-                        Log.LogInfo($"Started looping '{AudioAlertSoundNameConfig.Value}' sound for missing buff: {buffName}");
+                        Log.LogInfo($"Started {(LoopAudioAlertConfig.Value ? "looping" : "playing one-shot")} '{SelectedAudioClipNameConfig.Value}' sound for missing buff: {buffName}");
                     }
                 }
                 else
                 {
-                    Log.LogWarning($"missingBuffAudioClip is null. Cannot play sound for {buffName}.");
+                    // This case should be rare if the top-level check `if (missingBuffAudioClip == null)` is working.
+                    Log.LogWarning($"missingBuffAudioClip became null unexpectedly before playing for buff: {buffName}. This should not happen.");
                 }
             }
             else
@@ -268,27 +355,61 @@ namespace ETHICAL_Auras
         {
             if (currentlyMissingBuffs.Any())
             {
-                // Basic styling for the label - black background, white text
-                GUIStyle style = new GUIStyle(GUI.skin.label);
-                style.alignment = TextAnchor.UpperLeft;
-                style.fontSize = 16; // Example font size
-                Texture2D background = new Texture2D(1, 1);
-                background.SetPixel(0, 0, new Color(0, 0, 0, 0.7f)); // Semi-transparent black
-                background.Apply();
-                style.normal.background = background;
-                style.normal.textColor = Color.white;
-                style.padding = new RectOffset(5, 5, 5, 5);
+                // Flashing logic: alpha goes from 0 to 1 and back
+                iconFlashTimer += Time.deltaTime * ICON_FLASH_SPEED;
+                float alpha = Mathf.PingPong(iconFlashTimer, 1.0f);
 
-                float yOffset = 10f; // Starting Y position for the first alert
-                float xPos = 10f; // Starting X position for alerts
-                float lineHeight = 25f; // Height of each alert line, including padding
+                Color originalColor = GUI.color;
+                GUI.color = new Color(originalColor.r, originalColor.g, originalColor.b, alpha);
 
-                foreach (string missingBuff in currentlyMissingBuffs)
-                {
-                    string alertMessage = $"MISSING: {missingBuff}";
-                    GUI.Label(new Rect(xPos, yOffset, 250, lineHeight), alertMessage, style); // Adjust width as needed
-                    yOffset += lineHeight; // Move next alert down
+                // --- START DEBUG: Make icons larger and centered for testing ---
+                float debugIconSize = 200f;
+                float iconPaddingToUse = ICON_PADDING; // Use existing class constant
+
+                // Calculate the total width of the icon block
+                float totalBlockWidth = 0f;
+                // This if condition is technically redundant due to currentlyMissingBuffs.Any() check earlier,
+                // but kept for clarity if the outer check structure changes.
+                if (currentlyMissingBuffs.Count > 0) {
+                     totalBlockWidth = (currentlyMissingBuffs.Count * (debugIconSize + iconPaddingToUse)) - iconPaddingToUse;
                 }
+
+                float xPos = (Screen.width - totalBlockWidth) / 2f; // Centered horizontally
+                float yPos = (Screen.height - debugIconSize) / 2f; // Centered vertically
+                // --- END DEBUG ---
+
+                // Commenting out original positioning logic for the debug session
+                // float xPos = (Screen.width / 2f) - (currentlyMissingBuffs.Count * (ICON_SIZE + ICON_PADDING) - ICON_PADDING) / 2f; // Centered
+                // float yPos = 10f; // Top of the screen
+
+                foreach (StatusEffect missingBuffSE in currentlyMissingBuffs)
+                {
+                    Sprite sprite = missingBuffSE.m_icon; // Get the Sprite object
+                    if (sprite != null && sprite.texture != null) // Ensure sprite and its texture exist
+                    {
+                        Texture2D spriteSheet = sprite.texture; // This is the full sprite sheet
+                        Rect spritePixelRect = sprite.textureRect; // The specific sprite's rectangle in pixels on the sheet
+
+                        // Calculate the UV coordinates for the specific sprite
+                        // (normalized coordinates within the sprite sheet)
+                        Rect uvCoords = new Rect(
+                            spritePixelRect.x / spriteSheet.width,
+                            spritePixelRect.y / spriteSheet.height,
+                            spritePixelRect.width / spriteSheet.width,
+                            spritePixelRect.height / spriteSheet.height
+                        );
+
+                        // Use debugIconSize for drawing from the previous debugging step
+                        Rect iconRect = new Rect(xPos, yPos, debugIconSize, debugIconSize);
+
+                        // Draw the specific part of the texture (the sprite)
+                        GUI.DrawTextureWithTexCoords(iconRect, spriteSheet, uvCoords, true);
+
+                        // Advance xPos for the next icon, using debugIconSize and its associated padding
+                        xPos += debugIconSize + iconPaddingToUse;
+                    }
+                }
+                GUI.color = originalColor; // Reset GUI color
             }
         }
 
@@ -303,10 +424,6 @@ namespace ETHICAL_Auras
         {
             // If we had patches, we would unpatch them here.
             // harmony?.UnpatchSelf();
-            if (GUI.skin.label.normal.background != null)
-            {
-                 Texture2D.Destroy(GUI.skin.label.normal.background as Texture2D); // Clean up texture created for OnGUI
-            }
             Log.LogInfo($"Plugin {PluginGUID} ({PluginName}) is unloading.");
         }
     }
