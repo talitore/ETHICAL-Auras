@@ -29,6 +29,23 @@ namespace ETHICAL_Auras
         public static ConfigEntry<bool> LoopAudioAlertConfig;
         public static ConfigEntry<string> SelectedAudioClipNameConfig;
 
+        // Zone awareness configuration
+        public static ConfigEntry<bool> EnableZoneAwarenessConfig;
+        public static ConfigEntry<bool> MeadowsZoneConfig;
+        public static ConfigEntry<bool> BlackForestZoneConfig;
+        public static ConfigEntry<bool> SwampZoneConfig;
+        public static ConfigEntry<bool> MountainZoneConfig;
+        public static ConfigEntry<bool> PlainsZoneConfig;
+        public static ConfigEntry<bool> MistlandsZoneConfig;
+        public static ConfigEntry<bool> OceanZoneConfig;
+        public static ConfigEntry<bool> AshlandsZoneConfig;
+        public static ConfigEntry<bool> DeepNorthZoneConfig;
+
+        // Icon display configuration
+        public static ConfigEntry<float> IconSizeConfig;
+        public static ConfigEntry<string> IconPositionConfig;
+        public static ConfigEntry<float> IconSpacingConfig;
+
         // List to store buffs that are currently missing
         private List<StatusEffect> currentlyMissingBuffs = new List<StatusEffect>();
 
@@ -72,6 +89,42 @@ namespace ETHICAL_Auras
                     new AcceptableValueList<string>("scream", "creatine"))
                 ); // Description
 
+            // Initialize icon display configuration
+            IconSizeConfig = Config.Bind(
+                "Display", // Section
+                "IconSize", // Key
+                40f, // Default value
+                new ConfigDescription(
+                    "Size of the buff icons in pixels",
+                    new AcceptableValueRange<float>(20f, 200f)
+                )
+            );
+
+            IconPositionConfig = Config.Bind(
+                "Display", // Section
+                "IconPosition", // Key
+                "TopCenter", // Default value
+                new ConfigDescription(
+                    "Position of the buff icons on screen",
+                    new AcceptableValueList<string>("TopLeft", "TopCenter", "TopRight", "MiddleLeft", "MiddleCenter", "MiddleRight", "BottomLeft", "BottomCenter", "BottomRight")
+                )
+            );
+
+            IconSpacingConfig = Config.Bind(
+                "Display", // Section
+                "IconSpacing", // Key
+                5f, // Default value
+                new ConfigDescription(
+                    "Spacing between buff icons in pixels",
+                    new AcceptableValueRange<float>(0f, 50f)
+                )
+            );
+
+            // Listen for changes to the display configuration
+            IconSizeConfig.SettingChanged += (sender, args) => Log.LogInfo($"Icon size changed to: {IconSizeConfig.Value}");
+            IconPositionConfig.SettingChanged += (sender, args) => Log.LogInfo($"Icon position changed to: {IconPositionConfig.Value}");
+            IconSpacingConfig.SettingChanged += (sender, args) => Log.LogInfo($"Icon spacing changed to: {IconSpacingConfig.Value}");
+
             ParseTrackedBuffs();
             // Listen for changes to the configuration and update if it's modified while the game is running.
             TrackedBuffsConfig.SettingChanged += (sender, args) => ParseTrackedBuffs();
@@ -80,9 +133,83 @@ namespace ETHICAL_Auras
             SelectedAudioClipNameConfig.SettingChanged += (sender, args) =>
             {
                 Log.LogInfo($"Selected audio clip name changed to: {SelectedAudioClipNameConfig.Value}. Reloading clip.");
-                // Reload the audio clip when the setting changes
-                LoadSelectedAudioClip(ethicalAurasBundle); // Use the class field 'ethicalAurasBundle'
+                LoadSelectedAudioClip(ethicalAurasBundle);
             };
+
+            // Initialize zone awareness configuration
+            EnableZoneAwarenessConfig = Config.Bind(
+                "ZoneAwareness", // Section
+                "EnableZoneAwareness", // Key
+                true, // Default value
+                "Enable or disable zone-specific buff tracking." // Description
+            );
+
+            MeadowsZoneConfig = Config.Bind(
+                "ZoneAwareness", // Section
+                "MeadowsZone", // Key
+                false, // Default value
+                "Track buffs in Meadows biome." // Description
+            );
+
+            BlackForestZoneConfig = Config.Bind(
+                "ZoneAwareness", // Section
+                "BlackForestZone", // Key
+                false, // Default value
+                "Track buffs in Black Forest biome." // Description
+            );
+
+            SwampZoneConfig = Config.Bind(
+                "ZoneAwareness", // Section
+                "SwampZone", // Key
+                true, // Default value
+                "Track buffs in Swamp biome." // Description
+            );
+
+            MountainZoneConfig = Config.Bind(
+                "ZoneAwareness", // Section
+                "MountainZone", // Key
+                false, // Default value
+                "Track buffs in Mountain biome." // Description
+            );
+
+            PlainsZoneConfig = Config.Bind(
+                "ZoneAwareness", // Section
+                "PlainsZone", // Key
+                false, // Default value
+                "Track buffs in Plains biome." // Description
+            );
+
+            MistlandsZoneConfig = Config.Bind(
+                "ZoneAwareness", // Section
+                "MistlandsZone", // Key
+                false, // Default value
+                "Track buffs in Mistlands biome." // Description
+            );
+
+            OceanZoneConfig = Config.Bind(
+                "ZoneAwareness", // Section
+                "OceanZone", // Key
+                false, // Default value
+                "Track buffs in Ocean biome." // Description
+            );
+
+            AshlandsZoneConfig = Config.Bind(
+                "ZoneAwareness", // Section
+                "AshlandsZone", // Key
+                false, // Default value
+                "Track buffs in Ashlands biome." // Description
+            );
+
+            DeepNorthZoneConfig = Config.Bind(
+                "ZoneAwareness", // Section
+                "DeepNorthZone", // Key
+                false, // Default value
+                "Track buffs in Deep North biome." // Description
+            );
+
+            // Listen for changes to zone configuration
+            EnableZoneAwarenessConfig.SettingChanged += (sender, args) =>
+                Log.LogInfo($"Zone awareness {(EnableZoneAwarenessConfig.Value ? "enabled" : "disabled")}.");
 
             // Initialize Harmony for patching
             harmony = new Harmony(PluginGUID);
@@ -171,8 +298,64 @@ namespace ETHICAL_Auras
             }
         }
 
+        private bool IsCurrentZoneEnabled()
+        {
+            if (!EnableZoneAwarenessConfig.Value)
+                return true; // If zone awareness is disabled, always return true
+
+            Player localPlayer = Player.m_localPlayer;
+            if (localPlayer == null)
+                return false;
+
+            Heightmap.Biome currentBiome = localPlayer.GetCurrentBiome();
+
+            switch (currentBiome)
+            {
+                case Heightmap.Biome.Meadows:
+                    return MeadowsZoneConfig.Value;
+                case Heightmap.Biome.BlackForest:
+                    return BlackForestZoneConfig.Value;
+                case Heightmap.Biome.Swamp:
+                    return SwampZoneConfig.Value;
+                case Heightmap.Biome.Mountain:
+                    return MountainZoneConfig.Value;
+                case Heightmap.Biome.Plains:
+                    return PlainsZoneConfig.Value;
+                case Heightmap.Biome.Mistlands:
+                    return MistlandsZoneConfig.Value;
+                case Heightmap.Biome.Ocean:
+                    return OceanZoneConfig.Value;
+                case Heightmap.Biome.AshLands:
+                    return AshlandsZoneConfig.Value;
+                case Heightmap.Biome.DeepNorth:
+                    return DeepNorthZoneConfig.Value;
+                default:
+                    return true; // For any other biome, default to true
+            }
+        }
+
         private void Update()
         {
+            if (!IsCurrentZoneEnabled())
+            {
+                // If we're in a disabled zone, clear any active alerts
+                if (currentlyMissingBuffs.Any())
+                {
+                    currentlyMissingBuffs.Clear();
+                    // Stop any playing sounds
+                    GameObject soundGo = GameObject.Find("TempLoopingAlertSound");
+                    if (soundGo != null)
+                    {
+                        AudioSource audioSource = soundGo.GetComponent<AudioSource>();
+                        if (audioSource != null && audioSource.isPlaying)
+                        {
+                            audioSource.Stop();
+                        }
+                    }
+                }
+                return;
+            }
+
             CheckActiveBuffs();
 
             // Additional logic to stop the looping sound if all tracked buffs are active
@@ -362,36 +545,64 @@ namespace ETHICAL_Auras
                 Color originalColor = GUI.color;
                 GUI.color = new Color(originalColor.r, originalColor.g, originalColor.b, alpha);
 
-                // --- START DEBUG: Make icons larger and centered for testing ---
-                float debugIconSize = 200f;
-                float iconPaddingToUse = ICON_PADDING; // Use existing class constant
+                float iconSize = IconSizeConfig.Value;
+                float iconSpacing = IconSpacingConfig.Value;
 
                 // Calculate the total width of the icon block
-                float totalBlockWidth = 0f;
-                // This if condition is technically redundant due to currentlyMissingBuffs.Any() check earlier,
-                // but kept for clarity if the outer check structure changes.
-                if (currentlyMissingBuffs.Count > 0) {
-                     totalBlockWidth = (currentlyMissingBuffs.Count * (debugIconSize + iconPaddingToUse)) - iconPaddingToUse;
+                float totalBlockWidth = (currentlyMissingBuffs.Count * (iconSize + iconSpacing)) - iconSpacing;
+
+                // Calculate position based on configuration
+                float xPos = 0f;
+                float yPos = 0f;
+
+                switch (IconPositionConfig.Value)
+                {
+                    case "TopLeft":
+                        xPos = 10f;
+                        yPos = 10f;
+                        break;
+                    case "TopCenter":
+                        xPos = (Screen.width - totalBlockWidth) / 2f;
+                        yPos = 10f;
+                        break;
+                    case "TopRight":
+                        xPos = Screen.width - totalBlockWidth - 10f;
+                        yPos = 10f;
+                        break;
+                    case "MiddleLeft":
+                        xPos = 10f;
+                        yPos = (Screen.height - iconSize) / 2f;
+                        break;
+                    case "MiddleCenter":
+                        xPos = (Screen.width - totalBlockWidth) / 2f;
+                        yPos = (Screen.height - iconSize) / 2f;
+                        break;
+                    case "MiddleRight":
+                        xPos = Screen.width - totalBlockWidth - 10f;
+                        yPos = (Screen.height - iconSize) / 2f;
+                        break;
+                    case "BottomLeft":
+                        xPos = 10f;
+                        yPos = Screen.height - iconSize - 10f;
+                        break;
+                    case "BottomCenter":
+                        xPos = (Screen.width - totalBlockWidth) / 2f;
+                        yPos = Screen.height - iconSize - 10f;
+                        break;
+                    case "BottomRight":
+                        xPos = Screen.width - totalBlockWidth - 10f;
+                        yPos = Screen.height - iconSize - 10f;
+                        break;
                 }
-
-                float xPos = (Screen.width - totalBlockWidth) / 2f; // Centered horizontally
-                float yPos = (Screen.height - debugIconSize) / 2f; // Centered vertically
-                // --- END DEBUG ---
-
-                // Commenting out original positioning logic for the debug session
-                // float xPos = (Screen.width / 2f) - (currentlyMissingBuffs.Count * (ICON_SIZE + ICON_PADDING) - ICON_PADDING) / 2f; // Centered
-                // float yPos = 10f; // Top of the screen
 
                 foreach (StatusEffect missingBuffSE in currentlyMissingBuffs)
                 {
-                    Sprite sprite = missingBuffSE.m_icon; // Get the Sprite object
-                    if (sprite != null && sprite.texture != null) // Ensure sprite and its texture exist
+                    Sprite sprite = missingBuffSE.m_icon;
+                    if (sprite != null && sprite.texture != null)
                     {
-                        Texture2D spriteSheet = sprite.texture; // This is the full sprite sheet
-                        Rect spritePixelRect = sprite.textureRect; // The specific sprite's rectangle in pixels on the sheet
+                        Texture2D spriteSheet = sprite.texture;
+                        Rect spritePixelRect = sprite.textureRect;
 
-                        // Calculate the UV coordinates for the specific sprite
-                        // (normalized coordinates within the sprite sheet)
                         Rect uvCoords = new Rect(
                             spritePixelRect.x / spriteSheet.width,
                             spritePixelRect.y / spriteSheet.height,
@@ -399,17 +610,13 @@ namespace ETHICAL_Auras
                             spritePixelRect.height / spriteSheet.height
                         );
 
-                        // Use debugIconSize for drawing from the previous debugging step
-                        Rect iconRect = new Rect(xPos, yPos, debugIconSize, debugIconSize);
-
-                        // Draw the specific part of the texture (the sprite)
+                        Rect iconRect = new Rect(xPos, yPos, iconSize, iconSize);
                         GUI.DrawTextureWithTexCoords(iconRect, spriteSheet, uvCoords, true);
 
-                        // Advance xPos for the next icon, using debugIconSize and its associated padding
-                        xPos += debugIconSize + iconPaddingToUse;
+                        xPos += iconSize + iconSpacing;
                     }
                 }
-                GUI.color = originalColor; // Reset GUI color
+                GUI.color = originalColor;
             }
         }
 

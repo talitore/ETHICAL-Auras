@@ -7,4 +7,6 @@ The mod allows users to customize its behavior via a configuration file (`com.ta
 -   **Tracked Buffs**: Specify a comma-separated list of in-game buff names to monitor.
 -   **Audio Alerts**: Enable or disable audio notifications for missing buffs.
 -   **Loop Audio**: Choose whether the audio alert should loop or play once.
--   **Alert Sound**: Select from available audio clips for the alert.
+-   **Alert Sound**: Select from available audio clips for the alert. Available options include:
+    - Scream: double wraith death wail
+    - Creatine: creatine does nothing
