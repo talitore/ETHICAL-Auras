@@ -4,7 +4,7 @@ using BepInEx.Logging;
 using HarmonyLib;
 using System.Collections.Generic;
 using System.Linq;
-using UnityEngine; // Added for GUI and other Unity functionalities
+using UnityEngine;
 using System.Reflection;
 using System.IO;
 
@@ -28,6 +28,15 @@ namespace ETHICAL_Auras
         public static ConfigEntry<bool> EnableAudioAlertsConfig;
         public static ConfigEntry<bool> LoopAudioAlertConfig;
         public static ConfigEntry<string> SelectedAudioClipNameConfig;
+
+        // Menu configuration
+        public static ConfigEntry<bool> ShowMenuConfig;
+        public static ConfigEntry<KeyboardShortcut> ToggleMenuKeyConfig;
+        private bool isMenuVisible = false;
+        private Vector2 menuScrollPosition = Vector2.zero;
+        private string searchText = "";
+        private List<StatusEffect> allStatusEffects = new List<StatusEffect>();
+        private Dictionary<string, bool> statusEffectSelectionState = new Dictionary<string, bool>();
 
         // Zone awareness configuration
         public static ConfigEntry<bool> EnableZoneAwarenessConfig;
@@ -144,6 +153,11 @@ namespace ETHICAL_Auras
                 "Enable or disable zone-specific buff tracking." // Description
             );
 
+            // Listen for changes to zone configuration
+            EnableZoneAwarenessConfig.SettingChanged += (sender, args) =>
+                Log.LogInfo($"Zone awareness {(EnableZoneAwarenessConfig.Value ? "enabled" : "disabled")}.");
+
+            // Individual zone configurations
             MeadowsZoneConfig = Config.Bind(
                 "ZoneAwareness", // Section
                 "MeadowsZone", // Key
@@ -161,7 +175,7 @@ namespace ETHICAL_Auras
             SwampZoneConfig = Config.Bind(
                 "ZoneAwareness", // Section
                 "SwampZone", // Key
-                true, // Default value
+                false, // Default value
                 "Track buffs in Swamp biome." // Description
             );
 
@@ -207,9 +221,23 @@ namespace ETHICAL_Auras
                 "Track buffs in Deep North biome." // Description
             );
 
-            // Listen for changes to zone configuration
-            EnableZoneAwarenessConfig.SettingChanged += (sender, args) =>
-                Log.LogInfo($"Zone awareness {(EnableZoneAwarenessConfig.Value ? "enabled" : "disabled")}.");
+            // Initialize menu configuration
+            ShowMenuConfig = Config.Bind(
+                "Menu", // Section
+                "ShowMenu", // Key
+                false, // Default value
+                "Whether the status effect selection menu is visible." // Description
+            );
+
+            ToggleMenuKeyConfig = Config.Bind(
+                "Menu", // Section
+                "ToggleMenuKey", // Key
+                new KeyboardShortcut(KeyCode.F6), // Default value
+                "Key to toggle the status effect selection menu." // Description
+            );
+
+            // Initialize the list of all status effects
+            InitializeStatusEffectList();
 
             // Initialize Harmony for patching
             harmony = new Harmony(PluginGUID);
@@ -336,6 +364,13 @@ namespace ETHICAL_Auras
 
         private void Update()
         {
+            // Check for menu toggle key
+            if (ToggleMenuKeyConfig.Value.IsDown())
+            {
+                isMenuVisible = !isMenuVisible;
+                ShowMenuConfig.Value = isMenuVisible;
+            }
+
             if (!IsCurrentZoneEnabled())
             {
                 // If we're in a disabled zone, clear any active alerts
@@ -536,7 +571,14 @@ namespace ETHICAL_Auras
 
         private void OnGUI()
         {
-            if (currentlyMissingBuffs.Any())
+            // Draw the status effect selection menu if visible
+            if (isMenuVisible)
+            {
+                DrawStatusEffectMenu();
+            }
+
+            // Only draw the buff icons if we're not in the menu
+            if (currentlyMissingBuffs.Any() && !isMenuVisible)
             {
                 // Flashing logic: alpha goes from 0 to 1 and back
                 iconFlashTimer += Time.deltaTime * ICON_FLASH_SPEED;
@@ -618,6 +660,131 @@ namespace ETHICAL_Auras
                 }
                 GUI.color = originalColor;
             }
+        }
+
+        private void DrawStatusEffectMenu()
+        {
+            // Menu window dimensions and position
+            float windowWidth = 400f;
+            float windowHeight = 600f;
+            float windowX = (Screen.width - windowWidth) / 2f;
+            float windowY = (Screen.height - windowHeight) / 2f;
+
+            // Draw the main window
+            GUI.Window(0, new Rect(windowX, windowY, windowWidth, windowHeight), DrawMenuContents, "Status Effect Selection");
+        }
+
+        private void DrawMenuContents(int windowID)
+        {
+            float padding = 10f;
+            float currentY = padding;
+            float iconSize = 40f;
+            float rowHeight = iconSize + padding;
+
+            // Search box
+            GUI.SetNextControlName("SearchBox");
+            searchText = GUI.TextField(new Rect(padding, currentY, 380f, 25f), searchText);
+            currentY += 30f;
+
+            // Scroll view for the status effects
+            menuScrollPosition = GUI.BeginScrollView(
+                new Rect(padding, currentY, 380f, 500f),
+                menuScrollPosition,
+                new Rect(0, 0, 360f, allStatusEffects.Count * rowHeight)
+            );
+
+            // Filter status effects based on search text
+            var filteredEffects = allStatusEffects
+                .Where(se => string.IsNullOrEmpty(searchText) ||
+                       se.m_name.ToLower().Contains(searchText.ToLower()))
+                .ToList();
+
+            // Draw each status effect
+            foreach (var se in filteredEffects)
+            {
+                // Draw the icon
+                if (se.m_icon != null)
+                {
+                    Sprite sprite = se.m_icon;
+                    Texture2D spriteSheet = sprite.texture;
+                    Rect spritePixelRect = sprite.textureRect;
+
+                    Rect uvCoords = new Rect(
+                        spritePixelRect.x / spriteSheet.width,
+                        spritePixelRect.y / spriteSheet.height,
+                        spritePixelRect.width / spriteSheet.width,
+                        spritePixelRect.height / spriteSheet.height
+                    );
+
+                    GUI.DrawTextureWithTexCoords(
+                        new Rect(0, currentY, iconSize, iconSize),
+                        spriteSheet,
+                        uvCoords,
+                        true
+                    );
+                }
+
+                // Draw the name and checkbox
+                bool isSelected = statusEffectSelectionState[se.name];
+                bool newSelection = GUI.Toggle(
+                    new Rect(iconSize + padding, currentY + 10f, 300f, 20f),
+                    isSelected,
+                    se.m_name
+                );
+
+                // If selection changed, update the tracking list
+                if (newSelection != isSelected)
+                {
+                    statusEffectSelectionState[se.name] = newSelection;
+                    UpdateTrackedBuffsList();
+                }
+
+                currentY += rowHeight;
+            }
+
+            GUI.EndScrollView();
+
+            // Apply button
+            if (GUI.Button(new Rect(padding, 540f, 380f, 30f), "Apply Changes"))
+            {
+                UpdateTrackedBuffsList();
+                isMenuVisible = false;
+                ShowMenuConfig.Value = false;
+            }
+        }
+
+        private void UpdateTrackedBuffsList()
+        {
+            // Update the tracked buffs list based on selection state
+            TrackedBuffNames = statusEffectSelectionState
+                .Where(kvp => kvp.Value)
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            // Update the config
+            TrackedBuffsConfig.Value = string.Join(",", TrackedBuffNames);
+            Log.LogInfo($"Updated tracked buffs: {TrackedBuffsConfig.Value}");
+        }
+
+        private void InitializeStatusEffectList()
+        {
+            allStatusEffects.Clear();
+            statusEffectSelectionState.Clear();
+
+            if (ObjectDB.instance == null) return;
+
+            // Get all status effects from ObjectDB
+            foreach (StatusEffect se in ObjectDB.instance.GetStatusEffects())
+            {
+                if (se != null && se.m_icon != null) // Only add status effects that have icons
+                {
+                    allStatusEffects.Add(se);
+                    statusEffectSelectionState[se.name] = TrackedBuffNames.Contains(se.name);
+                }
+            }
+
+            // Sort the list alphabetically by name
+            allStatusEffects = allStatusEffects.OrderBy(se => se.m_name).ToList();
         }
 
         // Future methods for buff detection and alerts will go here.
